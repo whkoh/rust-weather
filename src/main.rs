@@ -55,8 +55,8 @@ struct Config {
 #[derive(Deserialize, Debug)]
 struct Check {
     stations: Vec<String>,
-    flag: String,
-    location: String,
+    // flag: String,
+    // location: String,
 }
 
 
@@ -74,28 +74,32 @@ fn read_config() -> Result<Config, Box<dyn Error>>  {
 }
 
 fn main() {
+    let mut enabled_stations: Vec<String> = Vec::new();
+    match read_config() {
+        Ok(config) => {
+            for check in config.check {
+                // println!("Location: {}, Flag: {}", check.location, check.flag);
+                for station in check.stations {
+                    enabled_stations.push(station);
+                }
+            }
+        }
+        Err(e) => eprintln!("Failed to read config: {}", e),
+    }
+    println!("enabled stations are: {:?}", enabled_stations);
     match read_weather() {
         Ok(parsed_data) => {
             for item in parsed_data.items {
                 for reading in item.readings {
-                    println!("{:#?}", reading);
+                    if enabled_stations.contains(&reading.station_id) {
+                        println!("{:#?}", reading);
+                    }
                 }
             }
         }
         Err(e) => {
             eprintln!("Error parsing JSON: {}", e);
         }
-    }
-    match read_config() {
-        Ok(config) => {
-            for check in config.check {
-                println!("Location: {}, Flag: {}", check.location, check.flag);
-                for station in check.stations {
-                    println!("  Station: {}", station);
-                }
-            }
-        }
-        Err(e) => eprintln!("Failed to read config: {}", e),
     }
 
     println!("Hello, world!");
