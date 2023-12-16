@@ -1,12 +1,13 @@
 use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
 use std::error::Error;
-use time;
+
 use chrono::{DateTime, Local};
 use reqwest::blocking::Client;
 use simplelog::*;
-use std::fs::File;
+
 use std::fs::OpenOptions;
+use tokio;
 
 const WEATHER_API:&str = "https://api.data.gov.sg/v1/environment/rainfall";
 // const WEATHER_API: &str = "https://raw.githubusercontent.com/whkoh/rust-weather/master/src/test_weather.json";
@@ -83,21 +84,24 @@ enum Feature {
     String { defaultValue: String },
 }
 
-fn read_weather() -> Result<Root, Box<dyn Error>> {
-    let response = reqwest::blocking::get(WEATHER_API).unwrap();
-    let data = serde_json::from_str::<Root>(&*response.text().unwrap())?;
+async fn read_weather() -> Result<Root, Box<dyn Error>> {
+    let response = reqwest::get(WEATHER_API).await?;
+    let text = response.text().await?;
+    let data = serde_json::from_str::<Root>(&text)?;
     Ok(data)
 }
 
-fn read_config() -> Result<Config, Box<dyn Error>> {
-    let response = reqwest::blocking::get(CONFIG_TOML).unwrap();
-    let config = toml::from_str(&*response.text().unwrap())?;
+async fn read_config() -> Result<Config, Box<dyn Error>> {
+    let response = reqwest::get(CONFIG_TOML).await?;
+    let text = response.text().await?;
+    let config = toml::from_str(&text)?;
     Ok(config)
 }
 
-fn read_flags() -> Result<Vec<String>, Box<dyn Error>> {
-    let response = reqwest::blocking::get(FLAGS_API).unwrap();
-    let flags = serde_json::from_str::<Flags>(&*response.text().unwrap())?;
+async fn read_flags() -> Result<Vec<String>, Box<dyn Error>> {
+    let response = reqwest::get(FLAGS_API).await?;
+    let text = response.text().await?;
+    let flags = serde_json::from_str::<Flags>(&text)?;
     let features = flags.features;
     let mut enabled_flags = Vec::new();
     for feature in features {
@@ -117,7 +121,8 @@ fn notify(message: String) -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
-fn main() {
+#[tokio::main]
+async fn main() {
     let log_file = OpenOptions::new()
         .write(true)
         .create(true)  // Create the file if it does not exist
@@ -132,7 +137,7 @@ fn main() {
         config,
         log_file
     );
-    let config = match read_config() {
+    let config = match read_config().await {
         Ok(config) => config,
         Err(e) => {
             log::error!("Failed to read config: {}", e);
@@ -140,7 +145,7 @@ fn main() {
         }
     };
     log::info!("config is: {:?}", config);
-    let flags = match read_flags() {
+    let flags = match read_flags().await {
         Ok(flags) => flags,
         Err(e) => {
             log::error!("Failed to read flags: {}", e);
@@ -148,7 +153,7 @@ fn main() {
         }
     };
     log::info!("flags is: {:?}", flags);
-    let parsed_data = match read_weather() {
+    let parsed_data = match read_weather().await {
         Ok(parsed_data) => parsed_data,
         Err(e) => {
             log::error!("Error parsing JSON: {}", e);
