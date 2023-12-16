@@ -1,7 +1,8 @@
 use serde::{Deserialize, Serialize};
 use std::error::Error;
 
-const WEATHER_API:&str = "https://api.data.gov.sg/v1/environment/rainfall";
+// const WEATHER_API:&str = "https://api.data.gov.sg/v1/environment/rainfall";
+const WEATHER_API:&str = "https://raw.githubusercontent.com/whkoh/rust-weather/master/src/test_weather.json";
 const CONFIG_TOML:&str = "https://raw.githubusercontent.com/whkoh/rust-weather/master/src/weather.toml";
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -56,7 +57,7 @@ struct Config {
 struct Check {
     stations: Vec<String>,
     // flag: String,
-    // location: String,
+    location: String,
 }
 
 
@@ -74,28 +75,28 @@ fn read_config() -> Result<Config, Box<dyn Error>>  {
 }
 
 fn main() {
-    let mut enabled_stations: Vec<String> = Vec::new();
-    let mut rain_stations: Vec<String> = Vec::new();
-    match read_config() {
-        Ok(config) => {
-            for check in config.check {
-                // println!("Location: {}, Flag: {}", check.location, check.flag);
-                for station in check.stations {
-                    enabled_stations.push(station);
-                }
-            }
+    let config = match read_config() {
+        Ok(config) => config,
+        Err(e) => {
+            eprintln!("Failed to read config: {}", e);
+            std::process::exit(1);
         }
-        Err(e) => eprintln!("Failed to read config: {}", e),
-    }
-    println!("enabled stations are: {:?}", enabled_stations);
+    };
+    println!("config is: {:?}", config);
     match read_weather() {
         Ok(parsed_data) => {
-            for item in parsed_data.items {
-                for reading in item.readings {
-                    if enabled_stations.contains(&reading.station_id) && reading.value > 0.0 {
-                        rain_stations.push(reading.station_id);
+            for check in config.check {
+                let mut rain_stations= Vec::new();
+                let enabled_stations = check.stations;
+                println!("location is {:?}, \nenabled_stations is\t {:?}", check.location, enabled_stations);
+                for item in &parsed_data.items {
+                    for reading in &item.readings {
+                        if enabled_stations.contains(&reading.station_id) && reading.value > 0.0 {
+                            rain_stations.push(&reading.station_id);
+                        }
                     }
                 }
+                println!("rain_stations is:\t {:?}", rain_stations);
             }
         }
         Err(e) => {
