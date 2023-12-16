@@ -1,11 +1,18 @@
 use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
 use std::error::Error;
+use time;
+use chrono::{DateTime, Local};
+use reqwest::blocking::Client;
+use simplelog::*;
+use std::fs::File;
+use std::fs::OpenOptions;
 
-// const WEATHER_API:&str = "https://api.data.gov.sg/v1/environment/rainfall";
-const WEATHER_API:&str = "https://raw.githubusercontent.com/whkoh/rust-weather/master/src/test_weather.json";
-const CONFIG_TOML:&str = "https://raw.githubusercontent.com/whkoh/rust-weather/master/src/weather.toml";
-const FLAGS_API:&str = "https://cdn.growthbook.io/api/features/prod_cbAOvmDygOHhAGOsaKdMhs7lI3wfI9bNAIqIeyNhos";
+const WEATHER_API:&str = "https://api.data.gov.sg/v1/environment/rainfall";
+// const WEATHER_API: &str = "https://raw.githubusercontent.com/whkoh/rust-weather/master/src/test_weather.json";
+const CONFIG_TOML: &str = "https://raw.githubusercontent.com/whkoh/rust-weather/master/src/weather.toml";
+const FLAGS_API: &str = "https://cdn.growthbook.io/api/features/prod_cbAOvmDygOHhAGOsaKdMhs7lI3wfI9bNAIqIeyNhos";
+const NOTIFY_API: &str = "https://ntfy.sh/aek6Igha6ia";
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct Root {
@@ -75,17 +82,17 @@ enum Feature {
     Bool { defaultValue: bool },
     String { defaultValue: String },
 }
+
 fn read_weather() -> Result<Root, Box<dyn Error>> {
     let response = reqwest::blocking::get(WEATHER_API).unwrap();
     let data = serde_json::from_str::<Root>(&*response.text().unwrap())?;
     Ok(data)
 }
 
-fn read_config() -> Result<Config, Box<dyn Error>>  {
+fn read_config() -> Result<Config, Box<dyn Error>> {
     let response = reqwest::blocking::get(CONFIG_TOML).unwrap();
     let config = toml::from_str(&*response.text().unwrap())?;
     Ok(config)
-
 }
 
 fn read_flags() -> Result<Vec<String>, Box<dyn Error>> {
@@ -94,56 +101,87 @@ fn read_flags() -> Result<Vec<String>, Box<dyn Error>> {
     let features = flags.features;
     let mut enabled_flags = Vec::new();
     for feature in features {
-        // println!("feature is: {:?}",feature.0);
         enabled_flags.push(feature.0);
     }
     Ok(enabled_flags)
 }
 
+fn notify(message: String) -> Result<(), Box<dyn Error>> {
+    let client = Client::new();
+    let res = client.post(NOTIFY_API)
+        .body(message.to_string())
+        .send()?;
+    if !res.status().is_success() {
+        log::error!("Request failed with status: {}", res.status());
+    }
+    Ok(())
+}
+
 fn main() {
+    let log_file = OpenOptions::new()
+        .write(true)
+        .create(true)  // Create the file if it does not exist
+        .append(true)  // Append to the file if it exists
+        .open("my_log.log")
+        .unwrap();
+    let config = ConfigBuilder::new()
+        .set_time_format_custom(format_description!("[year]-[month]-[day] [hour]:[minute]:[second].[subsecond]"))
+        .build();
+    let _ = WriteLogger::init(
+        LevelFilter::Info,
+        config,
+        log_file
+    );
     let config = match read_config() {
         Ok(config) => config,
         Err(e) => {
-            eprintln!("Failed to read config: {}", e);
+            log::error!("Failed to read config: {}", e);
             std::process::exit(1);
         }
     };
-    println!("config is: {:?}", config);
+    log::info!("config is: {:?}", config);
     let flags = match read_flags() {
         Ok(flags) => flags,
         Err(e) => {
-            eprintln!("Failed to read flags: {}", e);
+            log::error!("Failed to read flags: {}", e);
             std::process::exit(1);
         }
     };
-    println!("flags is: {:?}", flags);
+    log::info!("flags is: {:?}", flags);
     let parsed_data = match read_weather() {
         Ok(parsed_data) => parsed_data,
         Err(e) => {
-            eprintln!("Error parsing JSON: {}", e);
+            log::error!("Error parsing JSON: {}", e);
             std::process::exit(1);
         }
     };
+    let now: DateTime<Local> = Local::now();
     for check in config.check {
+        let formatted_time = now.format("%a %Y-%m-%d @ %H:%M").to_string();
         if !&flags.contains(&check.flag) {
-            continue
-        }
-        let mut rain_stations= Vec::new();
-        let enabled_stations = check.stations;
-        println!("location is {:?}, \nenabled_stations is\t {:?}", check.location, enabled_stations);
-        for item in &parsed_data.items {
-            for reading in &item.readings {
-                if enabled_stations.contains(&reading.station_id) && reading.value > 0.0 {
-                    rain_stations.push(&reading.station_id);
-                }
-            }
-        }
-        // println!("rain_stations is:\t {:?}", rain_stations);
-        if !rain_stations.is_empty() {
-            println!("It's raining in {}", check.location);
             continue;
         }
-        println!("It's NOT raining in {}", check.location);
+        let mut rain_amount = Vec::new();
+        let enabled_stations = check.stations;
+        log::info!("location is {:?}, \nenabled_stations is\t {:?}", check.location, enabled_stations);
+        for item in &parsed_data.items {
+            for reading in &item.readings {
+                if !(enabled_stations.contains(&reading.station_id) && reading.value > 0.0) {
+                    continue;
+                }
+                rain_amount.push(&reading.value);
+            }
+        }
+        if !rain_amount.is_empty() {
+            let smallest = rain_amount.iter().min_by(|a, b| a.partial_cmp(b).unwrap()).unwrap();
+            let sum: f32 = rain_amount.iter().map(|&num| num).sum();
+            let count: f32 = rain_amount.len() as f32;
+            let average: f32 = sum / count;
+            notify(format!("💧{} ({} stn) at {}. Min: {:?}mm, Avg: {:?}mm",
+                           check.location, count, formatted_time, smallest, average
+            )).expect("Notification failed");
+            continue;
+        }
+        log::info!("It's NOT raining in {}", check.location);
     }
-    println!("Hello, world!");
 }
