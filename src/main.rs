@@ -75,6 +75,7 @@ fn read_config() -> Result<Config, Box<dyn Error>>  {
 
 fn main() {
     let mut enabled_stations: Vec<String> = Vec::new();
+    let mut rain_stations: Vec<String> = Vec::new();
     match read_config() {
         Ok(config) => {
             for check in config.check {
@@ -91,8 +92,8 @@ fn main() {
         Ok(parsed_data) => {
             for item in parsed_data.items {
                 for reading in item.readings {
-                    if enabled_stations.contains(&reading.station_id) {
-                        println!("{:#?}", reading);
+                    if enabled_stations.contains(&reading.station_id) && reading.value > 0.0 {
+                        rain_stations.push(reading.station_id);
                     }
                 }
             }
