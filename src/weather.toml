@@ -1,0 +1,22 @@
+[[check]]
+stations = ['S220',
+    'S205',
+    'S94',
+    'S84',
+    'S207',
+    'S61',
+    'S215',
+    'S43',
+    'S221']
+flag = 'tprain'
+location = 'tampines'
+
+[[check]]
+stations = ['S222',
+    'S77',
+    'S223',
+    'S226',
+    'S120',
+    'S79']
+flag = 'tanglin-rain'
+location = 'tanglin'
