@@ -96,7 +96,12 @@ fn main() {
                         }
                     }
                 }
-                println!("rain_stations is:\t {:?}", rain_stations);
+                // println!("rain_stations is:\t {:?}", rain_stations);
+                if !rain_stations.is_empty() {
+                    println!("It's raining in {}", check.location);
+                    continue; // or `continue` if this is inside a loop
+                }
+                println!("It's NOT raining in {}", check.location);
             }
         }
         Err(e) => {
