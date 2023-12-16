@@ -1,6 +1,8 @@
 use serde::{Deserialize, Serialize};
+use std::error::Error;
 
 const WEATHER_API:&str = "https://api.data.gov.sg/v1/environment/rainfall";
+const CONFIG_TOML:&str = "https://raw.githubusercontent.com/whkoh/rust-weather/master/src/weather.toml";
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct Root {
@@ -37,7 +39,7 @@ pub struct Item {
 #[derive(Serialize, Deserialize, Debug)]
 pub struct Reading {
     pub station_id: String,
-    pub value: i32,
+    pub value: f32,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -45,22 +47,56 @@ pub struct ApiInfo {
     pub status: String,
 }
 
+#[derive(Deserialize, Debug)]
+struct Config {
+    check: Vec<Check>,
+}
 
-fn read_weather() {
+#[derive(Deserialize, Debug)]
+struct Check {
+    stations: Vec<String>,
+    flag: String,
+    location: String,
+}
+
+
+fn read_weather() -> Result<Root, Box<dyn Error>> {
     let response = reqwest::blocking::get(WEATHER_API).unwrap();
-    match serde_json::from_str::<Root>(&*response.text().unwrap()) {
+    let data = serde_json::from_str::<Root>(&*response.text().unwrap())?;
+    Ok(data)
+}
+
+fn read_config() -> Result<Config, Box<dyn Error>>  {
+    let response = reqwest::blocking::get(CONFIG_TOML).unwrap();
+    let config = toml::from_str(&*response.text().unwrap())?;
+    Ok(config)
+
+}
+
+fn main() {
+    match read_weather() {
         Ok(parsed_data) => {
-            println!("{:#?}", parsed_data);
+            for item in parsed_data.items {
+                for reading in item.readings {
+                    println!("{:#?}", reading);
+                }
+            }
         }
         Err(e) => {
             eprintln!("Error parsing JSON: {}", e);
         }
     }
+    match read_config() {
+        Ok(config) => {
+            for check in config.check {
+                println!("Location: {}, Flag: {}", check.location, check.flag);
+                for station in check.stations {
+                    println!("  Station: {}", station);
+                }
+            }
+        }
+        Err(e) => eprintln!("Failed to read config: {}", e),
+    }
 
-
-}
-
-fn main() {
-    read_weather();
     println!("Hello, world!");
 }
