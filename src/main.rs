@@ -3,12 +3,12 @@ use serde::{Deserialize, Serialize};
 use std::error::Error;
 
 use chrono::{DateTime, Local};
-use reqwest::blocking::Client;
+use reqwest::Client;
 use simplelog::*;
 
 use std::fs::OpenOptions;
 use tokio;
-
+const LOG_LEVEL: LevelFilter = LevelFilter::Info;
 const WEATHER_API:&str = "https://api.data.gov.sg/v1/environment/rainfall";
 // const WEATHER_API: &str = "https://raw.githubusercontent.com/whkoh/rust-weather/master/src/test_weather.json";
 const CONFIG_TOML: &str = "https://raw.githubusercontent.com/whkoh/rust-weather/master/src/weather.toml";
@@ -112,11 +112,12 @@ async fn read_flags() -> Result<Vec<String>, Box<dyn Error + Send + Sync>> {
     Ok(enabled_flags)
 }
 
-fn notify(message: String) -> Result<(), Box<dyn Error>> {
+async fn notify(message: String) -> Result<(), Box<dyn Error>> {
     let client = Client::new();
     let res = client.post(NOTIFY_API)
-        .body(message.to_string())
-        .send()?;
+        .body(message)
+        .send()
+        .await?;
     if !res.status().is_success() {
         log::error!("Request failed with status: {}", res.status());
     }
@@ -135,7 +136,7 @@ async fn main() {
         .set_time_format_custom(format_description!("[year]-[month]-[day] [hour]:[minute]:[second].[subsecond]"))
         .build();
     let _ = WriteLogger::init(
-        LevelFilter::Debug,
+        LOG_LEVEL,
         config,
         log_file
     );
@@ -201,9 +202,10 @@ async fn main() {
             let sum: f32 = rain_amount.iter().map(|&num| num).sum();
             let count: f32 = rain_amount.len() as f32;
             let average: f32 = sum / count;
+            log::info!("It IS raining in {}", check.location);
             notify(format!("💧{} ({} stn) at {}. Min: {:?}mm, Avg: {:?}mm",
                            check.location, count, formatted_time, smallest, average
-            )).expect("Notification failed");
+            ).to_string()).await.expect("Notification failed");
             continue;
         }
         log::info!("It's NOT raining in {}", check.location);
