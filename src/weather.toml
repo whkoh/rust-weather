@@ -8,8 +8,8 @@ stations = ['S220',
     'S215',
     'S43',
     'S221']
-#flag = 'tprain'
-flag = 'alas'
+flag = 'tprain'
+#flag = 'alas'
 location = 'tampines'
 
 [[check]]
