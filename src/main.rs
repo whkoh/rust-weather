@@ -71,6 +71,7 @@ struct Check {
 }
 
 #[derive(Serialize, Deserialize, Debug)]
+#[allow(non_snake_case)]
 struct Flags {
     status: u32,
     features: HashMap<String, Feature>,
@@ -79,6 +80,7 @@ struct Flags {
 
 #[derive(Serialize, Deserialize, Debug)]
 #[serde(untagged)]
+#[allow(non_snake_case)]
 enum Feature {
     Bool { defaultValue: bool },
     String { defaultValue: String },
@@ -137,7 +139,12 @@ async fn main() {
         config,
         log_file
     );
-    let config = match tokio::task::spawn(read_config()).await {
+    let (config_result, flags_result, weather_result) = tokio::join!(
+        tokio::task::spawn(read_config()),
+        tokio::task::spawn(read_flags()),
+        tokio::task::spawn(read_weather())
+    );
+    let config = match config_result {
         Ok(Ok(config)) => config,
         Ok(Err(e)) => {
             log::error!("Failed to read config: {}", e);
@@ -149,7 +156,7 @@ async fn main() {
         }
     };
     log::debug!("config is: {:?}", config);
-    let flags = match tokio::task::spawn(read_flags()).await {
+    let flags = match flags_result {
         Ok(Ok(flags)) => flags,
         Ok(Err(e)) => {
             log::error!("Failed to read flags: {}", e);
@@ -161,7 +168,7 @@ async fn main() {
         }
     };
     log::debug!("flags is: {:?}", flags);
-    let parsed_data = match tokio::task::spawn(read_weather()).await {
+    let parsed_data = match weather_result {
         Ok(Ok(parsed_data)) => parsed_data,
         Ok(Err(e)) => {
             log::error!("Error parsing JSON: {}", e);
