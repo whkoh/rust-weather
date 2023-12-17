@@ -84,21 +84,21 @@ enum Feature {
     String { defaultValue: String },
 }
 
-async fn read_weather() -> Result<Root, Box<dyn Error>> {
+async fn read_weather() -> Result<Root, Box<dyn Error + Send + Sync>> {
     let response = reqwest::get(WEATHER_API).await?;
     let text = response.text().await?;
     let data = serde_json::from_str::<Root>(&text)?;
     Ok(data)
 }
 
-async fn read_config() -> Result<Config, Box<dyn Error>> {
+async fn read_config() -> Result<Config, Box<dyn Error + Send + Sync>> {
     let response = reqwest::get(CONFIG_TOML).await?;
     let text = response.text().await?;
     let config = toml::from_str(&text)?;
     Ok(config)
 }
 
-async fn read_flags() -> Result<Vec<String>, Box<dyn Error>> {
+async fn read_flags() -> Result<Vec<String>, Box<dyn Error + Send + Sync>> {
     let response = reqwest::get(FLAGS_API).await?;
     let text = response.text().await?;
     let flags = serde_json::from_str::<Flags>(&text)?;
@@ -133,30 +133,42 @@ async fn main() {
         .set_time_format_custom(format_description!("[year]-[month]-[day] [hour]:[minute]:[second].[subsecond]"))
         .build();
     let _ = WriteLogger::init(
-        LevelFilter::Info,
+        LevelFilter::Debug,
         config,
         log_file
     );
-    let config = match read_config().await {
-        Ok(config) => config,
-        Err(e) => {
+    let config = match tokio::task::spawn(read_config()).await {
+        Ok(Ok(config)) => config,
+        Ok(Err(e)) => {
             log::error!("Failed to read config: {}", e);
             std::process::exit(1);
-        }
-    };
-    log::info!("config is: {:?}", config);
-    let flags = match read_flags().await {
-        Ok(flags) => flags,
+        },
         Err(e) => {
-            log::error!("Failed to read flags: {}", e);
+            log::error!("Task failed: {}", e);
             std::process::exit(1);
         }
     };
-    log::info!("flags is: {:?}", flags);
-    let parsed_data = match read_weather().await {
-        Ok(parsed_data) => parsed_data,
+    log::debug!("config is: {:?}", config);
+    let flags = match tokio::task::spawn(read_flags()).await {
+        Ok(Ok(flags)) => flags,
+        Ok(Err(e)) => {
+            log::error!("Failed to read flags: {}", e);
+            std::process::exit(1);
+        },
         Err(e) => {
+            log::error!("Task failed: {}", e);
+            std::process::exit(1);
+        }
+    };
+    log::debug!("flags is: {:?}", flags);
+    let parsed_data = match tokio::task::spawn(read_weather()).await {
+        Ok(Ok(parsed_data)) => parsed_data,
+        Ok(Err(e)) => {
             log::error!("Error parsing JSON: {}", e);
+            std::process::exit(1);
+        },
+        Err(e) => {
+            log::error!("Task failed: {}", e);
             std::process::exit(1);
         }
     };
@@ -168,7 +180,7 @@ async fn main() {
         }
         let mut rain_amount = Vec::new();
         let enabled_stations = check.stations;
-        log::info!("location is {:?}, \nenabled_stations is\t {:?}", check.location, enabled_stations);
+        log::debug!("location is {:?}, \nenabled_stations is\t {:?}", check.location, enabled_stations);
         for item in &parsed_data.items {
             for reading in &item.readings {
                 if !(enabled_stations.contains(&reading.station_id) && reading.value > 0.0) {
